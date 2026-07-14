@@ -2,37 +2,41 @@
 PSEi Stock Signal Dashboard
 =============================
 Pulls daily price history for a small watchlist of Philippine Stock
-Exchange (PSE) listed stocks via the Twelve Data API, computes classic
+Exchange (PSE) listed stocks via the EODHD API, computes classic
 technical indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD
 signal for each stock, and writes everything to a single self-contained
 HTML dashboard you can open in your browser.
 
 This tool does NOT place trades. It only surfaces signals for you to review.
 
-WHY TWELVE DATA INSTEAD OF YFINANCE
-------------------------------------
+WHY EODHD (and not yfinance or Twelve Data)
+---------------------------------------------
 Yahoo Finance (yfinance) has essentially no working historical price data
-for native PSE-listed shares — only the PSEi index itself and a couple of
-thinly-traded US OTC "ADR-style" tickers for a few large caps. Twelve Data
-has a real Philippine Stock Exchange (XPHS) integration with actual daily
-history for individual PSE stocks, so that's what this version uses.
+for native PSE-listed shares. Twelve Data lists PSE as a supported
+exchange but actually gates individual PSE stock data behind their $329/mo
+Ultra plan — the free tier doesn't cover it despite the marketing page.
+EODHD's free plan explicitly includes EOD historical data "for any
+ticker" worldwide (capped at 1 year of history and 20 API calls/day),
+which is what this version uses — 5 tickers/day comfortably fits.
 
 HOW TO RUN
 ----------
 1. Install dependencies (one time):
        pip install requests pandas plotly
 
-2. Get a free API key at https://twelvedata.com (sign up, no card needed,
-   the key is shown on your account dashboard). Free tier: 800 requests/day.
+2. Get a free API key at https://eodhd.com (sign up, no card needed,
+   the key is on your account dashboard). Free tier: 20 API calls/day,
+   1 year of history — plenty for 5 tickers checked once a day.
 
 3. Set it as an environment variable before running:
        # Mac/Linux:
-       export TWELVEDATA_API_KEY="your_key_here"
+       export EODHD_API_TOKEN="your_key_here"
        # Windows (PowerShell):
-       $env:TWELVEDATA_API_KEY="your_key_here"
+       $env:EODHD_API_TOKEN="your_key_here"
 
 4. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-   Use plain PSE ticker symbols, e.g. "SM", "BDO" — no ".PS" suffix needed.
+   Use plain PSE ticker symbols, e.g. "SM", "BDO" — the ".PSE" exchange
+   suffix is added automatically.
 
 5. Run it:
        python trading_dashboard.py
@@ -65,11 +69,10 @@ import requests
 # ---------------------------------------------------------------------------
 # 2 blue chips (SM Investments, BDO Unibank) + 3 non-blue-chip / REITs
 # (AREIT, RCR — real estate income plays; WLCON — mid-cap growth retailer)
-# Plain PSE symbols — no ".PS" suffix (that was the Yahoo Finance convention,
-# Twelve Data uses the bare symbol + exchange instead).
+# Plain PSE symbols — the ".PSE" exchange suffix EODHD expects is added
+# automatically in fetch_data().
 WATCHLIST = ["SM", "BDO", "AREIT", "RCR", "WLCON"]
-EXCHANGE = "PSE"            # Twelve Data exchange code for the Philippine Stock Exchange
-OUTPUT_SIZE = 400           # number of daily bars to pull (~1.5+ years — enough for SMA200 plus buffer)
+EXCHANGE_SUFFIX = "PSE"     # EODHD's exchange code for the Philippine Stock Exchange
 SMA_FAST = 50
 SMA_SLOW = 200
 RSI_PERIOD = 14
@@ -84,33 +87,35 @@ OUTPUT_FILE = "dashboard.html"
 # ---------------------------------------------------------------------------
 
 
-def fetch_data(ticker: str, exchange: str = EXCHANGE, outputsize: int = OUTPUT_SIZE) -> pd.DataFrame:
-    """Download daily OHLCV data for a ticker from the Twelve Data API."""
-    api_key = os.environ.get("TWELVEDATA_API_KEY")
+def fetch_data(ticker: str, exchange_suffix: str = EXCHANGE_SUFFIX) -> pd.DataFrame:
+    """Download daily OHLCV data for a ticker from the EODHD API."""
+    api_key = os.environ.get("EODHD_API_TOKEN")
     if not api_key:
         raise EnvironmentError(
-            "TWELVEDATA_API_KEY environment variable is not set. "
-            "Get a free key at https://twelvedata.com and set it before running."
+            "EODHD_API_TOKEN environment variable is not set. "
+            "Get a free key at https://eodhd.com and set it before running."
         )
 
-    url = "https://api.twelvedata.com/time_series"
+    full_symbol = f"{ticker}.{exchange_suffix}"
+    url = f"https://eodhd.com/api/eod/{full_symbol}"
     params = {
-        "symbol": ticker,
-        "exchange": exchange,
-        "interval": "1day",
-        "outputsize": outputsize,
-        "apikey": api_key,
+        "api_token": api_key,
+        "fmt": "json",
+        "period": "d",   # daily
+        "order": "a",    # ascending dates (oldest first) — matches what compute_indicators expects
     }
     resp = requests.get(url, params=params, timeout=30)
+
+    if resp.status_code != 200:
+        raise ValueError(f"EODHD error for {full_symbol}: HTTP {resp.status_code} — {resp.text[:200]}")
+
     data = resp.json()
+    if not isinstance(data, list) or len(data) == 0:
+        raise ValueError(f"EODHD returned no data for {full_symbol}: {data}")
 
-    if data.get("status") == "error" or "values" not in data:
-        message = data.get("message", data)
-        raise ValueError(f"Twelve Data error for {ticker}: {message}")
-
-    df = pd.DataFrame(data["values"])
-    df["datetime"] = pd.to_datetime(df["datetime"])
-    df = df.set_index("datetime").sort_index()  # Twelve Data returns newest-first; flip to chronological
+    df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
 
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = df[col].astype(float)
@@ -119,7 +124,7 @@ def fetch_data(ticker: str, exchange: str = EXCHANGE, outputsize: int = OUTPUT_S
         "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume",
     })
 
-    # Small delay to stay comfortably under the free-tier rate limit (8 requests/minute)
+    # Small delay to stay comfortably under the free-tier rate limit
     time.sleep(1)
 
     return df[["Open", "High", "Low", "Close", "Volume"]]
