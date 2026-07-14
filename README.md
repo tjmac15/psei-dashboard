@@ -7,11 +7,13 @@ it — as a dashboard you open in your browser.
 
 It does **not** place trades. It's read-only: you stay in control of every decision.
 
-Data comes from the [Twelve Data](https://twelvedata.com) API, which has
-real historical price coverage for individual PSE-listed stocks (Yahoo
-Finance/yfinance does not — it only has good data for the PSEi index
-itself, not individual PSE stocks, which is why this dashboard uses a
-different data source than the US one).
+Data comes from the [EODHD](https://eodhd.com) API. Yahoo Finance
+(yfinance) has essentially no working historical data for individual PSE
+stocks, and Twelve Data — despite listing PSE as a supported exchange —
+actually gates individual PSE stock data behind their $329/month Ultra
+plan. EODHD's free plan genuinely includes EOD historical data for any
+ticker worldwide (capped at 1 year of history and 20 API calls/day),
+which comfortably covers checking 5 stocks once a day.
 
 ## Watchlist
 
@@ -40,11 +42,11 @@ with prices in Philippine Pesos (₱).
 
 ## Setup (one time)
 
-**1. Get a free Twelve Data API key:**
-- Go to [twelvedata.com](https://twelvedata.com) → sign up (no card needed)
-- Your API key is shown on your account dashboard after signing in
-- Free tier: 800 requests/day — this script uses 5 requests per run, so
-  daily use isn't close to the limit
+**1. Get a free EODHD API key:**
+- Go to [eodhd.com](https://eodhd.com) → sign up (no card needed)
+- Your API key is on your account dashboard after signing in
+- Free tier: 20 API calls/day, 1 year of history — this script uses 5
+  calls per run, well within the limit
 
 **2. Install dependencies:**
 ```bash
@@ -56,12 +58,13 @@ pip install -r requirements.txt
 1. Set your API key as an environment variable:
    ```bash
    # Mac/Linux
-   export TWELVEDATA_API_KEY="your_key_here"
+   export EODHD_API_TOKEN="your_key_here"
    # Windows (PowerShell)
-   $env:TWELVEDATA_API_KEY="your_key_here"
+   $env:EODHD_API_TOKEN="your_key_here"
    ```
 2. (Optional) Edit the `WATCHLIST` list in `trading_dashboard.py` — use
-   plain PSE symbols like `"SM"`, no suffix needed.
+   plain PSE symbols like `"SM"`; the `.PSE` exchange suffix is added
+   automatically.
 3. Run it:
    ```bash
    python trading_dashboard.py
@@ -88,8 +91,8 @@ never visible in the code.
 2. **Add your API key as a repo secret:**
    - In the repo: **Settings → Secrets and variables → Actions**
    - Click **New repository secret**
-   - Name: `TWELVEDATA_API_KEY`
-   - Value: paste your Twelve Data API key
+   - Name: `EODHD_API_TOKEN`
+   - Value: paste your EODHD API key
    - Click **Add secret**
 3. In the repo, go to **Settings → Pages** and set **Source** to
    **GitHub Actions**.
@@ -110,6 +113,11 @@ never visible in the code.
   price often moves more on interest-rate expectations and dividend
   yield than on the same momentum patterns SMA/RSI/MACD are built to
   catch. Treat their signals here as a rough guide, not a full picture.
+- The free EODHD tier caps history at 1 year, which means SMA200 (which
+  needs 200 trading days) only has valid values for roughly the most
+  recent 2-3 months of that window — plenty for today's signal, but not
+  enough to backtest the strategy over a longer stretch without a paid
+  plan.
 - This tool only looks at price/volume history — it ignores company
   fundamentals, earnings, and PSE-specific news.
 - Philippine small/mid-cap stocks can have lower trading volume than
