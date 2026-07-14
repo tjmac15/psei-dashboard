@@ -1,14 +1,11 @@
-name: Daily Stock Dashboard
+name: Daily PSEi Stock Dashboard
 
 on:
   schedule:
-    # Once daily, shortly after US market close (~4:30pm ET), so every
-    # signal is based on a fully finished trading day rather than a
-    # still-forming intraday price. 21:30 UTC = 4:30pm EDT (roughly
-    # March-November) / 5:30pm EST (winter) — shift by an hour if you
-    # want it pinned to the same local time year-round.
-    - cron: "30 21 * * 1-5"
-  workflow_dispatch:
+    # Once daily, shortly after PSE market close (3:30pm Philippine Time
+    # = UTC+8, no daylight saving). 3:30pm PHT = 07:30 UTC.
+    - cron: "30 7 * * 1-5"
+  workflow_dispatch:   # lets you click "Run workflow" manually in the Actions tab
 
 permissions:
   contents: read
