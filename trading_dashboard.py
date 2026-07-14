@@ -84,6 +84,7 @@ MACD_SIGNAL = 9
 SIGNAL_THRESHOLD = 4         # score must reach +/- this to trigger BUY/SELL (was 3 — raised to reduce whipsaws on lower-volume PH stocks)
 CONFIRMATION_DAYS = 2        # score must clear the threshold on this many consecutive days before the signal actually flips
 OUTPUT_FILE = "dashboard.html"
+CURRENCY_SYMBOL = "₱"
 # ---------------------------------------------------------------------------
 
 
@@ -248,6 +249,7 @@ def generate_signal(df: pd.DataFrame) -> dict:
         "signal": label,
         "score": latest_score,
         "reasons": reasons,
+        "open": latest["Open"],
         "close": latest["Close"],
         "date": df.index[-1].strftime("%Y-%m-%d"),
     }
@@ -301,13 +303,20 @@ def build_dashboard(results: list[dict]) -> str:
     summary_rows = ""
     for r in results:
         color = signal_colors[r["signal"]]
+        t = r["ticker"]
         summary_rows += f"""
         <tr>
-          <td><strong>{r['ticker']}</strong></td>
-          <td>₱{r['close']:.2f}</td>
+          <td><strong>{t}</strong></td>
+          <td>{CURRENCY_SYMBOL}{r['open']:.2f}</td>
+          <td>{CURRENCY_SYMBOL}{r['close']:.2f}</td>
           <td><span style="background:{color};color:white;padding:4px 10px;
               border-radius:12px;font-weight:600;">{r['signal']}</span></td>
           <td style="font-size:0.85em;color:#555;">{'; '.join(r['reasons'])}</td>
+          <td><input type="number" step="0.01" min="0" class="pos-input" id="buy_{t}"
+              placeholder="e.g. {r['close']:.2f}" oninput="updatePL('{t}')"></td>
+          <td><input type="number" step="1" min="0" class="pos-input qty-input" id="qty_{t}"
+              placeholder="shares" oninput="updatePL('{t}')"></td>
+          <td id="pl_{t}"><span style="color:#999;">—</span></td>
         </tr>"""
 
     chart_sections = ""
@@ -318,6 +327,8 @@ def build_dashboard(results: list[dict]) -> str:
         </div>"""
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    current_prices_js = "{" + ", ".join(f'"{r["ticker"]}": {r["close"]}' for r in results) + "}"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -338,6 +349,10 @@ def build_dashboard(results: list[dict]) -> str:
                 box-shadow:0 1px 3px rgba(0,0,0,0.1); }}
   .disclaimer {{ margin-top:32px; padding:16px; background:#fff8e1; border-left:4px solid #e8a33d;
                 font-size:0.85em; color:#555; border-radius:4px; }}
+  .pos-input {{ width:90px; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:0.9em; }}
+  .qty-input {{ width:70px; }}
+  .position-note {{ margin-top:12px; padding:12px 16px; background:#eef4ff; border-left:4px solid #3b82f6;
+                    font-size:0.82em; color:#444; border-radius:4px; }}
 </style>
 </head>
 <body>
@@ -345,9 +360,19 @@ def build_dashboard(results: list[dict]) -> str:
   <div class="timestamp">Generated {now}</div>
 
   <table>
-    <tr><th>Ticker</th><th>Last Close</th><th>Signal</th><th>Why</th></tr>
+    <tr>
+      <th>Ticker</th><th>Open</th><th>Last Close</th><th>Signal</th><th>Why</th>
+      <th>Your Buy Price</th><th>Qty</th><th>P/L</th>
+    </tr>
     {summary_rows}
   </table>
+
+  <div class="position-note">
+    Enter your buy price (and optionally quantity) for any stock to see your
+    gain/loss update automatically. This is saved only in your own browser
+    (not uploaded anywhere) and will still be here the next time this page
+    refreshes — clearing your browser data will clear it too.
+  </div>
 
   {chart_sections}
 
@@ -357,6 +382,58 @@ def build_dashboard(results: list[dict]) -> str:
     history. They can and do produce false signals. Use this as one input among many,
     do your own research, and only invest what you can afford to lose.
   </div>
+
+  <script>
+    const currentPrices = {current_prices_js};
+    const currencySymbol = "{CURRENCY_SYMBOL}";
+
+    function updatePL(ticker) {{
+      const buyInput = document.getElementById('buy_' + ticker);
+      const qtyInput = document.getElementById('qty_' + ticker);
+      const plCell = document.getElementById('pl_' + ticker);
+      const buy = parseFloat(buyInput.value);
+      const qty = parseFloat(qtyInput.value) || 0;
+      const current = currentPrices[ticker];
+
+      if (!buy || buy <= 0) {{
+        plCell.innerHTML = '<span style="color:#999;">—</span>';
+        localStorage.removeItem('buyPrice_' + ticker);
+        localStorage.removeItem('qty_' + ticker);
+        return;
+      }}
+
+      const pctChange = ((current - buy) / buy) * 100;
+      const sign = pctChange >= 0 ? '+' : '';
+      const color = pctChange >= 0 ? '#1e8e3e' : '#d93025';
+
+      let html = '<span style="color:' + color + ';font-weight:600;">' +
+                 sign + pctChange.toFixed(2) + '%</span>';
+
+      if (qty > 0) {{
+        const dollarChange = (current - buy) * qty;
+        const dSign = dollarChange >= 0 ? '+' : '-';
+        html += '<br><span style="color:' + color + ';font-size:0.85em;">' +
+                dSign + currencySymbol + Math.abs(dollarChange).toFixed(2) + '</span>';
+      }}
+
+      plCell.innerHTML = html;
+
+      localStorage.setItem('buyPrice_' + ticker, buyInput.value);
+      localStorage.setItem('qty_' + ticker, qtyInput.value);
+    }}
+
+    function loadPosition(ticker) {{
+      const savedBuy = localStorage.getItem('buyPrice_' + ticker);
+      const savedQty = localStorage.getItem('qty_' + ticker);
+      if (savedBuy) document.getElementById('buy_' + ticker).value = savedBuy;
+      if (savedQty) document.getElementById('qty_' + ticker).value = savedQty;
+      updatePL(ticker);
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      Object.keys(currentPrices).forEach(loadPosition);
+    }});
+  </script>
 </body>
 </html>"""
 
