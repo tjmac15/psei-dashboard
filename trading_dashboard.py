@@ -56,6 +56,8 @@ RSI_OVERSOLD = 30
 MACD_FAST = 12
 MACD_SLOW = 26
 MACD_SIGNAL = 9
+SIGNAL_THRESHOLD = 4         # score must reach +/- this to trigger BUY/SELL (was 3 — raised to reduce whipsaws on lower-volume PH stocks)
+CONFIRMATION_DAYS = 2        # score must clear the threshold on this many consecutive days before the signal actually flips
 OUTPUT_FILE = "dashboard.html"
 # ---------------------------------------------------------------------------
 
@@ -99,14 +101,15 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def generate_signal(df: pd.DataFrame) -> dict:
+def _score_at(df: pd.DataFrame, i: int) -> tuple[int, list[str]]:
     """
-    Look at the most recent bar(s) and derive a simple BUY / SELL / HOLD
-    signal plus the reasons behind it. This is intentionally simple and
-    transparent so you can see exactly why it fired.
+    Compute the bullish/bearish score and reasons for the bar at index i,
+    comparing it against the bar at i-1. This is the same logic used for
+    every day we check — factored out so generate_signal() can look at
+    more than just the single latest day.
     """
-    latest = df.iloc[-1]
-    prev = df.iloc[-2]
+    latest = df.iloc[i]
+    prev = df.iloc[i - 1]
 
     reasons = []
     score = 0  # positive = bullish, negative = bearish
@@ -157,17 +160,37 @@ def generate_signal(df: pd.DataFrame) -> dict:
         else:
             reasons.append(f"RSI at {latest['RSI']:.1f} — neutral zone")
 
-    # Translate score to a signal label
-    if score >= 3:
+    return score, reasons
+
+
+def generate_signal(df: pd.DataFrame) -> dict:
+    """
+    Derive a BUY / SELL / HOLD signal from the recent bars.
+
+    To cut down on whipsaws (especially on lower-volume stocks where a
+    single noisy day can flip the score), a BUY or SELL only fires once
+    the score has cleared SIGNAL_THRESHOLD on CONFIRMATION_DAYS
+    consecutive days in a row. A one-day spike that reverses the next
+    day is treated as noise and reported as HOLD.
+    """
+    latest_score, reasons = _score_at(df, -1)
+
+    # Check the last CONFIRMATION_DAYS days all agree in the same direction
+    recent_scores = [_score_at(df, -1 - k)[0] for k in range(CONFIRMATION_DAYS)]
+    all_bullish = all(s >= SIGNAL_THRESHOLD for s in recent_scores)
+    all_bearish = all(s <= -SIGNAL_THRESHOLD for s in recent_scores)
+
+    if all_bullish:
         label = "BUY"
-    elif score <= -3:
+    elif all_bearish:
         label = "SELL"
     else:
         label = "HOLD"
 
+    latest = df.iloc[-1]
     return {
         "signal": label,
-        "score": score,
+        "score": latest_score,
         "reasons": reasons,
         "close": latest["Close"],
         "date": df.index[-1].strftime("%Y-%m-%d"),
