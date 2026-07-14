@@ -2,31 +2,47 @@
 PSEi Stock Signal Dashboard
 =============================
 Pulls daily price history for a small watchlist of Philippine Stock
-Exchange (PSE) listed stocks, computes classic technical indicators
-(SMA, RSI, MACD), derives a simple BUY / SELL / HOLD signal for each
-stock, and writes everything to a single self-contained HTML dashboard
-you can open in your browser.
+Exchange (PSE) listed stocks via the Twelve Data API, computes classic
+technical indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD
+signal for each stock, and writes everything to a single self-contained
+HTML dashboard you can open in your browser.
 
 This tool does NOT place trades. It only surfaces signals for you to review.
+
+WHY TWELVE DATA INSTEAD OF YFINANCE
+------------------------------------
+Yahoo Finance (yfinance) has essentially no working historical price data
+for native PSE-listed shares — only the PSEi index itself and a couple of
+thinly-traded US OTC "ADR-style" tickers for a few large caps. Twelve Data
+has a real Philippine Stock Exchange (XPHS) integration with actual daily
+history for individual PSE stocks, so that's what this version uses.
 
 HOW TO RUN
 ----------
 1. Install dependencies (one time):
-       pip install yfinance pandas plotly
+       pip install requests pandas plotly
 
-2. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-   PSE tickers on Yahoo Finance use a ".PS" suffix, e.g. "SM.PS".
+2. Get a free API key at https://twelvedata.com (sign up, no card needed,
+   the key is shown on your account dashboard). Free tier: 800 requests/day.
 
-3. Run it:
+3. Set it as an environment variable before running:
+       # Mac/Linux:
+       export TWELVEDATA_API_KEY="your_key_here"
+       # Windows (PowerShell):
+       $env:TWELVEDATA_API_KEY="your_key_here"
+
+4. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
+   Use plain PSE ticker symbols, e.g. "SM", "BDO" — no ".PS" suffix needed.
+
+5. Run it:
        python trading_dashboard.py
 
-4. Open the generated file:
+6. Open the generated file:
        dashboard.html
 
-5. (Optional) Automate the daily check:
-   - Mac/Linux: add a cron job, e.g. run at 5pm every weekday (after PSE close):
-       0 17 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
-   - Windows: use Task Scheduler to run this script daily.
+7. (Optional) Automate the daily check via GitHub Actions — see README.md.
+   The API key is passed in as a GitHub Actions secret, never committed
+   to the repo.
 
 DISCLAIMER
 ----------
@@ -36,18 +52,24 @@ in choppy or low-volume markets. Always do your own research and consider
 your own risk tolerance before trading.
 """
 
+import os
 import sys
+import time
 from datetime import datetime
 
 import pandas as pd
+import requests
 
 # ---------------------------------------------------------------------------
 # CONFIG — edit this section
 # ---------------------------------------------------------------------------
 # 2 blue chips (SM Investments, BDO Unibank) + 3 non-blue-chip / REITs
 # (AREIT, RCR — real estate income plays; WLCON — mid-cap growth retailer)
-WATCHLIST = ["SM.PS", "BDO.PS", "AREIT.PS", "RCR.PS", "WLCON.PS"]
-LOOKBACK_PERIOD = "1y"      # how much history to pull (e.g. "6mo", "1y", "2y")
+# Plain PSE symbols — no ".PS" suffix (that was the Yahoo Finance convention,
+# Twelve Data uses the bare symbol + exchange instead).
+WATCHLIST = ["SM", "BDO", "AREIT", "RCR", "WLCON"]
+EXCHANGE = "PSE"            # Twelve Data exchange code for the Philippine Stock Exchange
+OUTPUT_SIZE = 400           # number of daily bars to pull (~1.5+ years — enough for SMA200 plus buffer)
 SMA_FAST = 50
 SMA_SLOW = 200
 RSI_PERIOD = 14
@@ -62,16 +84,45 @@ OUTPUT_FILE = "dashboard.html"
 # ---------------------------------------------------------------------------
 
 
-def fetch_data(ticker: str, period: str) -> pd.DataFrame:
-    """Download daily OHLCV data for a ticker."""
-    import yfinance as yf
-    df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-    if df.empty:
-        raise ValueError(f"No data returned for {ticker}. Check the ticker symbol.")
-    # yfinance sometimes returns MultiIndex columns for a single ticker — flatten them
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df
+def fetch_data(ticker: str, exchange: str = EXCHANGE, outputsize: int = OUTPUT_SIZE) -> pd.DataFrame:
+    """Download daily OHLCV data for a ticker from the Twelve Data API."""
+    api_key = os.environ.get("TWELVEDATA_API_KEY")
+    if not api_key:
+        raise EnvironmentError(
+            "TWELVEDATA_API_KEY environment variable is not set. "
+            "Get a free key at https://twelvedata.com and set it before running."
+        )
+
+    url = "https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": ticker,
+        "exchange": exchange,
+        "interval": "1day",
+        "outputsize": outputsize,
+        "apikey": api_key,
+    }
+    resp = requests.get(url, params=params, timeout=30)
+    data = resp.json()
+
+    if data.get("status") == "error" or "values" not in data:
+        message = data.get("message", data)
+        raise ValueError(f"Twelve Data error for {ticker}: {message}")
+
+    df = pd.DataFrame(data["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    df = df.set_index("datetime").sort_index()  # Twelve Data returns newest-first; flip to chronological
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = df[col].astype(float)
+
+    df = df.rename(columns={
+        "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume",
+    })
+
+    # Small delay to stay comfortably under the free-tier rate limit (8 requests/minute)
+    time.sleep(1)
+
+    return df[["Open", "High", "Low", "Close", "Volume"]]
 
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -310,7 +361,7 @@ def main():
     for ticker in WATCHLIST:
         print(f"Fetching {ticker}...")
         try:
-            df = fetch_data(ticker, LOOKBACK_PERIOD)
+            df = fetch_data(ticker)
             df = compute_indicators(df)
             sig = generate_signal(df)
             sig["ticker"] = ticker
