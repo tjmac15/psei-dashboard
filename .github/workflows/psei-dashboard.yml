@@ -32,6 +32,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run dashboard script
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
         run: python trading_dashboard.py
 
       - name: Prepare Pages site
