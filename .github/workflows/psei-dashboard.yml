@@ -1,0 +1,59 @@
+name: Daily Stock Dashboard
+
+on:
+  schedule:
+    # Once daily, shortly after US market close (~4:30pm ET), so every
+    # signal is based on a fully finished trading day rather than a
+    # still-forming intraday price. 21:30 UTC = 4:30pm EDT (roughly
+    # March-November) / 5:30pm EST (winter) — shift by an hour if you
+    # want it pinned to the same local time year-round.
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run dashboard script
+        run: python trading_dashboard.py
+
+      - name: Prepare Pages site
+        run: |
+          mkdir -p _site
+          cp dashboard.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
