@@ -1,21 +1,37 @@
-# Daily Stock Signal Dashboard
+# PSEi Stock Signal Dashboard
 
-A local Python tool that checks a small watchlist once a day, computes classic
-technical indicators, and gives you a **BUY / SELL / HOLD** read on each stock
-with the reasoning behind it — as a dashboard you open in your browser.
+A local Python tool that checks a small Philippine Stock Exchange (PSE)
+watchlist once a day, computes classic technical indicators, and gives
+you a **BUY / SELL / HOLD** read on each stock with the reasoning behind
+it — as a dashboard you open in your browser.
 
 It does **not** place trades. It's read-only: you stay in control of every decision.
 
+## Watchlist
+
+| Ticker | Company | Type |
+|---|---|---|
+| SM.PS | SM Investments Corp | Blue chip (conglomerate) |
+| BDO.PS | BDO Unibank | Blue chip (banking) |
+| AREIT.PS | AREIT (Ayala Land REIT) | REIT (office & retail) |
+| RCR.PS | RL Commercial REIT | REIT (office, BPO tenants) |
+| WLCON.PS | Wilcon Depot | Mid-cap (home improvement retail) |
+
+PSE-listed stocks use a `.PS` suffix on Yahoo Finance (the data source
+this script uses), so all tickers are written as e.g. `SM.PS` rather
+than just `SM`.
+
 ## What it does
 
-For each ticker in your watchlist, it pulls ~1 year of daily price history and computes:
+For each ticker, it pulls ~1 year of daily price history and computes:
 
 - **SMA 50 / SMA 200** — trend direction, golden cross / death cross
 - **RSI (14)** — overbought (>70) / oversold (<30)
 - **MACD (12, 26, 9)** — momentum shifts via signal-line crossovers
 
-These are combined into a simple transparent score → BUY / SELL / HOLD, and
-plotted on an interactive candlestick + indicator chart.
+These are combined into a simple transparent score → BUY / SELL / HOLD,
+and plotted on an interactive candlestick + indicator chart. Prices are
+shown in Philippine Pesos (₱).
 
 ## Setup (one time)
 
@@ -25,11 +41,11 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Open `trading_dashboard.py` and edit the `WATCHLIST` list near the top
-   (keep it to ~5 tickers so it stays fast and readable):
+1. Open `trading_dashboard.py` and edit the `WATCHLIST` list near the
+   top if you want different stocks (keep the `.PS` suffix):
 
    ```python
-   WATCHLIST = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
+   WATCHLIST = ["SM.PS", "BDO.PS", "AREIT.PS", "RCR.PS", "WLCON.PS"]
    ```
 
 2. Run it:
@@ -40,72 +56,44 @@ pip install -r requirements.txt
 
 3. Open the generated `dashboard.html` in your browser.
 
-The default watchlist tracks 5 individual large-cap stocks priced
-roughly $50-150 a share, spread across different sectors: `WFC`
-(Wells Fargo), `CSCO` (Cisco), `XOM` (ExxonMobil), `TGT` (Target),
-and `SBUX` (Starbucks) — a mix of steadier names (banking, tech,
-energy) and slightly more consumer-cycle-sensitive names (retail,
-restaurants) for a bit more day-to-day movement, without straying
-into speculative or small-cap territory.
-
-## Automating the daily check (optional)
-
-- **Mac/Linux (cron)** — run every weekday at 9am:
-  ```
-  0 9 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
-  ```
-- **Windows** — use Task Scheduler to run the script daily and reopen
-  `dashboard.html` in your browser.
-
-## Hosting it on GitHub (recommended — no computer needs to stay on)
+## Hosting it on GitHub (recommended)
 
 This repo includes `.github/workflows/dashboard.yml`, which runs the
-script automatically on GitHub's servers every weekday morning and
-publishes the result as a website via GitHub Pages.
+script automatically every weekday shortly after the PSE closes
+(3:30pm Philippine Time) and publishes the result via GitHub Pages.
 
-1. Create a new **public** GitHub repo (Pages' free tier requires public
-   for personal accounts) and push these files to it:
+1. Create a new **public** GitHub repo and push these files to it:
    ```
    git init
    git add .
-   git commit -m "Initial dashboard"
+   git commit -m "Initial PSEi dashboard"
    git branch -M main
    git remote add origin https://github.com/<your-username>/<your-repo>.git
    git push -u origin main
    ```
 2. In the repo, go to **Settings → Pages** and set **Source** to
    **GitHub Actions**.
-3. Go to the **Actions** tab, select "Daily Stock Dashboard", and click
-   **Run workflow** once to trigger the first build manually (otherwise
-   it waits for the next scheduled run).
+3. Go to the **Actions** tab, select "Daily PSEi Stock Dashboard", and
+   click **Run workflow** to trigger the first build manually.
 4. After it finishes, your dashboard is live at:
    ```
    https://<your-username>.github.io/<your-repo>/
    ```
-   It will then refresh automatically every weekday morning — just
-   bookmark the link.
-
-The cron schedule in the workflow runs at 13:00 UTC (~9am US/Eastern).
-Edit the `cron:` line in `.github/workflows/dashboard.yml` if you want
-a different time.
-
-## Tuning the strategy
-
-All the thresholds live at the top of `trading_dashboard.py`:
-`SMA_FAST`, `SMA_SLOW`, `RSI_PERIOD`, `RSI_OVERBOUGHT`, `RSI_OVERSOLD`,
-`MACD_FAST`, `MACD_SLOW`, `MACD_SIGNAL`. Adjust and re-run to see how
-signals change. The `generate_signal()` function is short and readable —
-it's meant to be a starting point you can tweak, not a black box.
+   It refreshes automatically after each weekday's market close from
+   then on.
 
 ## A note before you connect real money to this
 
 - Technical indicators are **lagging** — they react to price moves that
-  already happened, not predict future ones. False signals are common,
-  especially in choppy or low-volume conditions.
-- This tool only looks at price/volume history. It ignores fundamentals,
-  news, earnings, and broader market context — all things worth checking
-  before you act on a signal.
-- Consider backtesting any strategy over historical data (and multiple
-  market regimes — bull, bear, sideways) before trusting it with real capital.
+  already happened, not predict future ones.
+- REITs (AREIT, RCR) behave differently from regular stocks — their
+  price often moves more on interest-rate expectations and dividend
+  yield than on the same momentum patterns SMA/RSI/MACD are built to
+  catch. Treat their signals here as a rough guide, not a full picture.
+- This tool only looks at price/volume history — it ignores company
+  fundamentals, earnings, and PSE-specific news.
+- Philippine small/mid-cap stocks can have lower trading volume than
+  their US counterparts, which can make price swings choppier and
+  technical signals noisier.
 - This is a personal research tool, not financial advice, and not a
   licensed trading system.
