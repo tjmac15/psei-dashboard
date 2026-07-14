@@ -33,7 +33,7 @@ jobs:
 
       - name: Run dashboard script
         env:
-          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          EODHD_API_TOKEN: ${{ secrets.EODHD_API_TOKEN }}
         run: python trading_dashboard.py
 
       - name: Prepare Pages site
