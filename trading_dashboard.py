@@ -143,7 +143,13 @@ def fetch_data(ticker: str, exchange_suffix: str = EXCHANGE_SUFFIX) -> pd.DataFr
     # Small delay to stay comfortably under the free-tier rate limit
     time.sleep(1)
 
-    return df[["Open", "High", "Low", "Close", "Volume"]]
+    # Defensive: drop any incomplete rows (missing OHLC) so "latest" always
+    # means the last fully-reported trading day, same safeguard as the US script.
+    result = df[["Open", "High", "Low", "Close", "Volume"]]
+    result = result.dropna(subset=["Open", "High", "Low", "Close"])
+    if result.empty:
+        raise ValueError(f"No complete trading data available for {full_symbol} after filtering.")
+    return result
 
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
