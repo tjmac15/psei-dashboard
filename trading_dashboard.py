@@ -93,12 +93,12 @@ CURRENCY_SYMBOL = "₱"
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    apiKey: "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
-    authDomain: "stock-dashboard-12345.firebaseapp.com",
-    projectId: "stock-dashboard-12345",
-    storageBucket: "stock-dashboard-12345.appspot.com",
-    messagingSenderId: "466011958430",
-    appId: "1:466011958430:web:434377d05c4ba90f691f8f",
+    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
+    "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
+    "projectId": "stock-dashboard-1a7bd",
+    "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
+    "messagingSenderId": "466011958430",
+    "appId": "1:466011958430:web:434377d05c4ba90f691f8f",
 }
 # ---------------------------------------------------------------------------
 
