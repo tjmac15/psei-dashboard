@@ -92,14 +92,14 @@ CURRENCY_SYMBOL = "₱"
 # still works fine — entries just stay local-only). To enable it, create a
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
-const firebaseConfig = {
-  apiKey: "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
-  authDomain: "stock-dashboard-1a7bd.firebaseapp.com",
-  projectId: "stock-dashboard-1a7bd",
-  storageBucket: "stock-dashboard-1a7bd.firebasestorage.app",
-  messagingSenderId: "466011958430",
-  appId: "1:466011958430:web:434377d05c4ba90f691f8f"
-};
+FIREBASE_CONFIG = {
+    "apiKey": "AIzaSyD-abc123456789",
+    "authDomain": "stock-dashboard-12345.firebaseapp.com",
+    "projectId": "stock-dashboard-12345",
+    "storageBucket": "stock-dashboard-12345.appspot.com",
+    "messagingSenderId": "123456789012",
+    "appId": "1:123456789012:web:abcdef123456",
+}
 # ---------------------------------------------------------------------------
 
 
