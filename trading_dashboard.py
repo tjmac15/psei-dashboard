@@ -54,12 +54,12 @@ ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"   # fast + cheap — plenty for a 
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    "apiKey": "YOUR_API_KEY",
-    "authDomain": "YOUR_PROJECT_ID.firebaseapp.com",
-    "projectId": "YOUR_PROJECT_ID",
-    "storageBucket": "YOUR_PROJECT_ID.appspot.com",
-    "messagingSenderId": "YOUR_SENDER_ID",
-    "appId": "YOUR_APP_ID",
+    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
+    "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
+    "projectId": "stock-dashboard-1a7bd",
+    "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
+    "messagingSenderId": "466011958430",
+    "appId": "1:466011958430:web:434377d05c4ba90f691f8f",
 }
 # ---------------------------------------------------------------------------
 
@@ -397,8 +397,8 @@ def build_dashboard(results: list[dict]) -> str:
   {chart_sections}
 
   <div class="disclaimer">
-    <strong>Not financial advice.</strong> These signals come from lagging technical
-    indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
+    <strong>Not financial advice.</strong> These signals come from lagging Technical
+    Analysis indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
     history. They can and do produce false signals. Use this as one input among many,
     do your own research, and only invest what you can afford to lose.
   </div>
