@@ -1,53 +1,4 @@
 """
-PSEi Stock Signal Dashboard
-=============================
-Pulls daily price history for a small watchlist of Philippine Stock
-Exchange (PSE) listed stocks via the EODHD API, computes classic
-technical indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD
-signal for each stock, and writes everything to a single self-contained
-HTML dashboard you can open in your browser.
-
-This tool does NOT place trades. It only surfaces signals for you to review.
-
-WHY EODHD (and not yfinance or Twelve Data)
----------------------------------------------
-Yahoo Finance (yfinance) has essentially no working historical price data
-for native PSE-listed shares. Twelve Data lists PSE as a supported
-exchange but actually gates individual PSE stock data behind their $329/mo
-Ultra plan — the free tier doesn't cover it despite the marketing page.
-EODHD's free plan explicitly includes EOD historical data "for any
-ticker" worldwide (capped at 1 year of history and 20 API calls/day),
-which is what this version uses — 5 tickers/day comfortably fits.
-
-HOW TO RUN
-----------
-1. Install dependencies (one time):
-       pip install requests pandas plotly
-
-2. Get a free API key at https://eodhd.com (sign up, no card needed,
-   the key is on your account dashboard). Free tier: 20 API calls/day,
-   1 year of history — plenty for 5 tickers checked once a day.
-
-3. Set it as an environment variable before running:
-       # Mac/Linux:
-       export EODHD_API_TOKEN="your_key_here"
-       # Windows (PowerShell):
-       $env:EODHD_API_TOKEN="your_key_here"
-
-4. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-   Use plain PSE ticker symbols, e.g. "SM", "BDO" — the ".PSE" exchange
-   suffix is added automatically.
-
-5. Run it:
-       python trading_dashboard.py
-
-6. Open the generated file:
-       dashboard.html
-
-7. (Optional) Automate the daily check via GitHub Actions — see README.md.
-   The API key is passed in as a GitHub Actions secret, never committed
-   to the repo.
-
 DISCLAIMER
 ----------
 This is a technical-analysis educational tool, not financial advice.
@@ -85,6 +36,16 @@ SIGNAL_THRESHOLD = 4         # score must reach +/- this to trigger BUY/SELL (wa
 CONFIRMATION_DAYS = 2        # score must clear the threshold on this many consecutive days before the signal actually flips
 OUTPUT_FILE = "dashboard.html"
 CURRENCY_SYMBOL = "₱"
+STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag your stop-loss
+TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal is still HOLD, flag taking some profit
+
+# Optional: AI-written analysis per stock, based on the technical signal only
+# (no fundamentals here — those are paywalled for PSE stocks, see README.md).
+# Needs an Anthropic API key set as the ANTHROPIC_API_KEY environment
+# variable. If it's not set, this is skipped entirely — the dashboard works
+# exactly as before, no AI section shown.
+ENABLE_AI_ANALYSIS = True
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"   # fast + cheap — plenty for a short daily summary
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
@@ -93,12 +54,12 @@ CURRENCY_SYMBOL = "₱"
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
-    "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
-    "projectId": "stock-dashboard-1a7bd",
-    "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
-    "messagingSenderId": "466011958430",
-    "appId": "1:466011958430:web:434377d05c4ba90f691f8f",
+    "apiKey": "YOUR_API_KEY",
+    "authDomain": "YOUR_PROJECT_ID.firebaseapp.com",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_PROJECT_ID.appspot.com",
+    "messagingSenderId": "YOUR_SENDER_ID",
+    "appId": "YOUR_APP_ID",
 }
 # ---------------------------------------------------------------------------
 
@@ -347,18 +308,29 @@ def build_dashboard(results: list[dict]) -> str:
           <td><input type="number" step="1" min="0" class="pos-input qty-input" id="qty_{t}"
               placeholder="shares" oninput="updatePL('{t}')"></td>
           <td id="pl_{t}"><span style="color:#999;">—</span></td>
+          <td id="sugg_{t}"><span style="color:#999;">—</span></td>
         </tr>"""
 
     chart_sections = ""
     for r in results:
+        ai_html = ""
+        if r.get("ai_analysis"):
+            ai_html = f"""
+        <div class="ai-analysis">
+          <div class="ai-label">🤖 AI take on {r['ticker']}</div>
+          <div>{r['ai_analysis']}</div>
+          <div class="ai-caveat">AI-generated from the technical signal above (no fundamentals available for PSE stocks) — may be inaccurate, not financial advice.</div>
+        </div>"""
         chart_sections += f"""
         <div class="chart-card">
+          {ai_html}
           {r['chart_html']}
         </div>"""
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     current_prices_js = "{" + ", ".join(f'"{r["ticker"]}": {r["close"]}' for r in results) + "}"
+    signals_js = "{" + ", ".join(f'"{r["ticker"]}": "{r["signal"]}"' for r in results) + "}"
     firebase_config_js = "{" + ", ".join(f'"{k}": "{v}"' for k, v in FIREBASE_CONFIG.items()) + "}"
 
     return f"""<!DOCTYPE html>
@@ -387,6 +359,10 @@ def build_dashboard(results: list[dict]) -> str:
   .qty-input {{ width:70px; }}
   .position-note {{ margin-top:12px; padding:12px 16px; background:#eef4ff; border-left:4px solid #3b82f6;
                     font-size:0.82em; color:#444; border-radius:4px; }}
+  .ai-analysis {{ margin-bottom:16px; padding:14px 16px; background:#f6f0ff; border-left:4px solid #8b5cf6;
+                  border-radius:4px; font-size:0.9em; color:#333; line-height:1.5; }}
+  .ai-label {{ font-weight:700; color:#6d28d9; margin-bottom:4px; }}
+  .ai-caveat {{ margin-top:8px; font-size:0.78em; color:#888; }}
   .auth-bar {{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }}
   .auth-btn {{ padding:8px 16px; border-radius:6px; border:1px solid #ddd; background:white;
               cursor:pointer; font-size:0.9em; font-weight:600; }}
@@ -407,7 +383,7 @@ def build_dashboard(results: list[dict]) -> str:
   <table>
     <tr>
       <th>Ticker</th><th>Open</th><th>Last Close</th><th>Signal</th><th>Why</th>
-      <th>Your Buy Price</th><th>Qty</th><th>P/L</th>
+      <th>Your Buy Price</th><th>Qty</th><th>P/L</th><th>Suggested Action</th>
     </tr>
     {summary_rows}
   </table>
@@ -429,6 +405,9 @@ def build_dashboard(results: list[dict]) -> str:
 
   <script>
     const currentPrices = {current_prices_js};
+    const currentSignals = {signals_js};
+    const stopLossPct = {STOP_LOSS_PCT};
+    const takeProfitPct = {TAKE_PROFIT_PCT};
     const currencySymbol = "{CURRENCY_SYMBOL}";
     const firebaseConfig = {firebase_config_js};
 
@@ -456,17 +435,37 @@ def build_dashboard(results: list[dict]) -> str:
       firebase.auth().signOut();
     }}
 
+    function getSuggestion(ticker, pctChange) {{
+      const signal = currentSignals[ticker];
+
+      if (signal === 'SELL') {{
+        return {{ text: 'Consider selling — signal turned bearish', color: '#d93025' }};
+      }}
+      if (signal === 'BUY') {{
+        return {{ text: 'Hold — uptrend still active', color: '#1e8e3e' }};
+      }}
+      if (pctChange <= stopLossPct) {{
+        return {{ text: 'Down ' + pctChange.toFixed(1) + '% — consider your stop-loss', color: '#d93025' }};
+      }}
+      if (pctChange >= takeProfitPct) {{
+        return {{ text: 'Up ' + pctChange.toFixed(1) + '% — consider taking some profit', color: '#1e8e3e' }};
+      }}
+      return {{ text: 'Hold', color: '#e8a33d' }};
+    }}
+
     function updatePL(ticker, shouldSave) {{
       if (shouldSave === undefined) shouldSave = true;
       const buyInput = document.getElementById('buy_' + ticker);
       const qtyInput = document.getElementById('qty_' + ticker);
       const plCell = document.getElementById('pl_' + ticker);
+      const suggCell = document.getElementById('sugg_' + ticker);
       const buy = parseFloat(buyInput.value);
       const qty = parseFloat(qtyInput.value) || 0;
       const current = currentPrices[ticker];
 
       if (!buy || buy <= 0) {{
         plCell.innerHTML = '<span style="color:#999;">—</span>';
+        suggCell.innerHTML = '<span style="color:#999;">—</span>';
         if (shouldSave) clearPosition(ticker);
         return;
       }}
@@ -486,6 +485,10 @@ def build_dashboard(results: list[dict]) -> str:
       }}
 
       plCell.innerHTML = html;
+
+      const suggestion = getSuggestion(ticker, pctChange);
+      suggCell.innerHTML = '<span style="color:' + suggestion.color + ';font-weight:600;">' + suggestion.text + '</span>';
+
       if (shouldSave) savePosition(ticker, buyInput.value, qtyInput.value);
     }}
 
@@ -576,6 +579,51 @@ def build_dashboard(results: list[dict]) -> str:
 </html>"""
 
 
+def generate_ai_analysis(ticker: str, signal_data: dict) -> str | None:
+    """
+    Ask Claude for a short, plain-language take on this stock, based on the
+    technical signal only (no fundamentals — those are paywalled for PSE
+    stocks). Returns None if no API key is set, or if the request fails for
+    any reason — this must never break the rest of the dashboard.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    prompt = f"""Based only on the data below, write a brief 2-3 sentence analysis of \
+{ticker} (a Philippine Stock Exchange listed stock) for a retail investor's \
+personal research dashboard. Mention both supportive and risk factors where \
+relevant. Describe what the data shows rather than giving direct buy/sell \
+instructions — the reader makes their own decision. No fundamental data \
+(P/E, earnings, etc.) is available for this stock, so base this only on \
+the technical signal below — say so rather than guessing at fundamentals.
+
+Technical signal: {signal_data['signal']}
+Reasons: {'; '.join(signal_data['reasons'])}"""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": ANTHROPIC_MODEL,
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        print(f"  (AI analysis failed for {ticker}: {e})", file=sys.stderr)
+        return None
+
+
 def main():
     results = []
     for ticker in WATCHLIST:
@@ -586,6 +634,12 @@ def main():
             sig = generate_signal(df)
             sig["ticker"] = ticker
             sig["chart_html"] = build_chart_html(ticker, df)
+
+            if ENABLE_AI_ANALYSIS and os.environ.get("ANTHROPIC_API_KEY"):
+                sig["ai_analysis"] = generate_ai_analysis(ticker, sig)
+            else:
+                sig["ai_analysis"] = None
+
             results.append(sig)
             print(f"  -> {sig['signal']} at ₱{sig['close']:.2f}")
         except Exception as e:
