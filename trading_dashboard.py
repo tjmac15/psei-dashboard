@@ -371,7 +371,7 @@ def build_dashboard(results: list[dict]) -> str:
 </style>
 </head>
 <body>
-  <h1>📊 PSEi Stock Signal Dashboard</h1>
+  <h1>PSEi Stock Signal Dashboard</h1>
   <div class="timestamp">Generated {now}</div>
 
   <div class="auth-bar">
