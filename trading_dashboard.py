@@ -371,7 +371,7 @@ def build_dashboard(results: list[dict]) -> str:
 </style>
 </head>
 <body>
-  <h1>PSEi Stock Signal Dashboard</h1>
+  <h1>📊 PSEi Stock Signal Dashboard</h1>
   <div class="timestamp">Generated {now}</div>
 
   <div class="auth-bar">
@@ -397,8 +397,8 @@ def build_dashboard(results: list[dict]) -> str:
   {chart_sections}
 
   <div class="disclaimer">
-    <strong>Not financial advice.</strong> These signals come from lagging Technical
-    Analysis indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
+    <strong>Not financial advice.</strong> These signals come from lagging technical
+    indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
     history. They can and do produce false signals. Use this as one input among many,
     do your own research, and only invest what you can afford to lose.
   </div>
@@ -616,7 +616,9 @@ Reasons: {'; '.join(signal_data['reasons'])}"""
             },
             timeout=30,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            print(f"  (AI analysis failed for {ticker}: HTTP {resp.status_code} — {resp.text[:500]})", file=sys.stderr)
+            return None
         data = resp.json()
         return data["content"][0]["text"].strip()
     except Exception as e:
