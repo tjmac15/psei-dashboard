@@ -41,11 +41,12 @@ TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal 
 
 # Optional: AI-written analysis per stock, based on the technical signal only
 # (no fundamentals here — those are paywalled for PSE stocks, see README.md).
-# Needs an Anthropic API key set as the ANTHROPIC_API_KEY environment
-# variable. If it's not set, this is skipped entirely — the dashboard works
-# exactly as before, no AI section shown.
+# Uses Google's Gemini API, which has a genuinely free tier (no credit card,
+# no minimum spend) — needs a free API key from https://aistudio.google.com
+# set as the GEMINI_API_KEY environment variable. If it's not set, this is
+# skipped entirely — the dashboard works exactly as before, no AI section shown.
 ENABLE_AI_ANALYSIS = True
-ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"   # fast + cheap — plenty for a short daily summary
+GEMINI_MODEL = "gemini-2.5-flash-lite"   # most generous free tier: 15 requests/min, 1,000/day
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
@@ -581,12 +582,12 @@ def build_dashboard(results: list[dict]) -> str:
 
 def generate_ai_analysis(ticker: str, signal_data: dict) -> str | None:
     """
-    Ask Claude for a short, plain-language take on this stock, based on the
+    Ask Gemini for a short, plain-language take on this stock, based on the
     technical signal only (no fundamentals — those are paywalled for PSE
     stocks). Returns None if no API key is set, or if the request fails for
     any reason — this must never break the rest of the dashboard.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
 
@@ -603,24 +604,16 @@ Reasons: {'; '.join(signal_data['reasons'])}"""
 
     try:
         resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": ANTHROPIC_MODEL,
-                "max_tokens": 200,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            params={"key": api_key},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=30,
         )
         if resp.status_code != 200:
             print(f"  (AI analysis failed for {ticker}: HTTP {resp.status_code} — {resp.text[:500]})", file=sys.stderr)
             return None
         data = resp.json()
-        return data["content"][0]["text"].strip()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         print(f"  (AI analysis failed for {ticker}: {e})", file=sys.stderr)
         return None
@@ -637,7 +630,7 @@ def main():
             sig["ticker"] = ticker
             sig["chart_html"] = build_chart_html(ticker, df)
 
-            if ENABLE_AI_ANALYSIS and os.environ.get("ANTHROPIC_API_KEY"):
+            if ENABLE_AI_ANALYSIS and os.environ.get("GEMINI_API_KEY"):
                 sig["ai_analysis"] = generate_ai_analysis(ticker, sig)
             else:
                 sig["ai_analysis"] = None
