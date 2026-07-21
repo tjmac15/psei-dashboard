@@ -46,7 +46,7 @@ TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal 
 # set as the GEMINI_API_KEY environment variable. If it's not set, this is
 # skipped entirely — the dashboard works exactly as before, no AI section shown.
 ENABLE_AI_ANALYSIS = True
-GEMINI_MODEL = "gemini-2.5-flash-lite"   # most generous free tier: 15 requests/min, 1,000/day
+GEMINI_MODEL = "gemini-3.1-flash-lite"   # most generous free tier: 15 requests/min, 1,000/day
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
