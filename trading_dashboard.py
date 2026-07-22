@@ -1,53 +1,4 @@
 """
-PSEi Stock Signal Dashboard
-=============================
-Pulls daily price history for a small watchlist of Philippine Stock
-Exchange (PSE) listed stocks via the EODHD API, computes classic
-technical indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD
-signal for each stock, and writes everything to a single self-contained
-HTML dashboard you can open in your browser.
-
-This tool does NOT place trades. It only surfaces signals for you to review.
-
-WHY EODHD (and not yfinance or Twelve Data)
----------------------------------------------
-Yahoo Finance (yfinance) has essentially no working historical price data
-for native PSE-listed shares. Twelve Data lists PSE as a supported
-exchange but actually gates individual PSE stock data behind their $329/mo
-Ultra plan — the free tier doesn't cover it despite the marketing page.
-EODHD's free plan explicitly includes EOD historical data "for any
-ticker" worldwide (capped at 1 year of history and 20 API calls/day),
-which is what this version uses — 5 tickers/day comfortably fits.
-
-HOW TO RUN
-----------
-1. Install dependencies (one time):
-       pip install requests pandas plotly
-
-2. Get a free API key at https://eodhd.com (sign up, no card needed,
-   the key is on your account dashboard). Free tier: 20 API calls/day,
-   1 year of history — plenty for 5 tickers checked once a day.
-
-3. Set it as an environment variable before running:
-       # Mac/Linux:
-       export EODHD_API_TOKEN="your_key_here"
-       # Windows (PowerShell):
-       $env:EODHD_API_TOKEN="your_key_here"
-
-4. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-   Use plain PSE ticker symbols, e.g. "SM", "BDO" — the ".PSE" exchange
-   suffix is added automatically.
-
-5. Run it:
-       python trading_dashboard.py
-
-6. Open the generated file:
-       dashboard.html
-
-7. (Optional) Automate the daily check via GitHub Actions — see README.md.
-   The API key is passed in as a GitHub Actions secret, never committed
-   to the repo.
-
 DISCLAIMER
 ----------
 This is a technical-analysis educational tool, not financial advice.
@@ -400,7 +351,7 @@ def build_dashboard(results: list[dict]) -> str:
           </div>"""
             ai_html = f"""
         <div class="ai-analysis">
-          <div class="ai-label">🤖 AI take on {r['ticker']}</div>
+          <div class="ai-label">Analysis by Gemini AI on {r['ticker']}</div>
           {ai_text_html}
           {news_html}
           <div class="ai-caveat">AI-generated from the technical signal above (no fundamentals available for PSE stocks) — may be inaccurate, not financial advice. Headlines link to their original source.</div>
@@ -461,7 +412,7 @@ def build_dashboard(results: list[dict]) -> str:
 </style>
 </head>
 <body>
-  <h1>📊 PSEi Stock Signal Dashboard</h1>
+  <h1>PSEi daily Stock Signal Dashboard</h1>
   <div class="timestamp">Generated {now}</div>
 
   <div class="auth-bar">
@@ -485,13 +436,6 @@ def build_dashboard(results: list[dict]) -> str:
   </div>
 
   {chart_sections}
-
-  <div class="disclaimer">
-    <strong>Not financial advice.</strong> These signals come from lagging technical
-    indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
-    history. They can and do produce false signals. Use this as one input among many,
-    do your own research, and only invest what you can afford to lose.
-  </div>
 
   <script>
     const currentPrices = {current_prices_js};
