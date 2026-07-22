@@ -1,4 +1,53 @@
 """
+PSEi Stock Signal Dashboard
+=============================
+Pulls daily price history for a small watchlist of Philippine Stock
+Exchange (PSE) listed stocks via the EODHD API, computes classic
+technical indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD
+signal for each stock, and writes everything to a single self-contained
+HTML dashboard you can open in your browser.
+
+This tool does NOT place trades. It only surfaces signals for you to review.
+
+WHY EODHD (and not yfinance or Twelve Data)
+---------------------------------------------
+Yahoo Finance (yfinance) has essentially no working historical price data
+for native PSE-listed shares. Twelve Data lists PSE as a supported
+exchange but actually gates individual PSE stock data behind their $329/mo
+Ultra plan — the free tier doesn't cover it despite the marketing page.
+EODHD's free plan explicitly includes EOD historical data "for any
+ticker" worldwide (capped at 1 year of history and 20 API calls/day),
+which is what this version uses — 5 tickers/day comfortably fits.
+
+HOW TO RUN
+----------
+1. Install dependencies (one time):
+       pip install requests pandas plotly
+
+2. Get a free API key at https://eodhd.com (sign up, no card needed,
+   the key is on your account dashboard). Free tier: 20 API calls/day,
+   1 year of history — plenty for 5 tickers checked once a day.
+
+3. Set it as an environment variable before running:
+       # Mac/Linux:
+       export EODHD_API_TOKEN="your_key_here"
+       # Windows (PowerShell):
+       $env:EODHD_API_TOKEN="your_key_here"
+
+4. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
+   Use plain PSE ticker symbols, e.g. "SM", "BDO" — the ".PSE" exchange
+   suffix is added automatically.
+
+5. Run it:
+       python trading_dashboard.py
+
+6. Open the generated file:
+       dashboard.html
+
+7. (Optional) Automate the daily check via GitHub Actions — see README.md.
+   The API key is passed in as a GitHub Actions secret, never committed
+   to the repo.
+
 DISCLAIMER
 ----------
 This is a technical-analysis educational tool, not financial advice.
@@ -7,9 +56,12 @@ in choppy or low-volume markets. Always do your own research and consider
 your own risk tolerance before trading.
 """
 
+import html
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from datetime import datetime
 
 import pandas as pd
@@ -36,7 +88,8 @@ SIGNAL_THRESHOLD = 4         # score must reach +/- this to trigger BUY/SELL (wa
 CONFIRMATION_DAYS = 2        # score must clear the threshold on this many consecutive days before the signal actually flips
 OUTPUT_FILE = "dashboard.html"
 CURRENCY_SYMBOL = "₱"
-STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag your stop-loss
+STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag CUT LOSS
+STOP_LOSS_WARNING_PCT = -5   # earlier heads-up before the real cut-loss line — down this much triggers a "watch it" warning
 TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal is still HOLD, flag taking some profit
 
 # Optional: AI-written analysis per stock, based on the technical signal only
@@ -46,7 +99,22 @@ TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal 
 # set as the GEMINI_API_KEY environment variable. If it's not set, this is
 # skipped entirely — the dashboard works exactly as before, no AI section shown.
 ENABLE_AI_ANALYSIS = True
-GEMINI_MODEL = "gemini-3.1-flash-lite"   # most generous free tier: 15 requests/min, 1,000/day
+GEMINI_MODEL = "gemini-3.1-flash-lite"   # current free-tier model (Google retires model names fairly often —
+                                          # if this one 404s too, check https://aistudio.google.com for the
+                                          # current free-tier model list and swap the string here)
+
+# Full company names for each ticker, used to search for recent news (ticker
+# symbols alone give poor search results, especially short PSE tickers like
+# "SM" or "RCR" which collide with unrelated topics). Update this if you
+# change WATCHLIST.
+COMPANY_NAMES = {
+    "SM": "SM Investments Corporation Philippines",
+    "BDO": "BDO Unibank Philippines",
+    "AREIT": "AREIT Inc Ayala Land REIT Philippines",
+    "RCR": "RL Commercial REIT Philippines",
+    "WLCON": "Wilcon Depot Philippines",
+}
+NEWS_MAX_RESULTS = 3   # how many recent headlines to show per stock
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
@@ -314,13 +382,28 @@ def build_dashboard(results: list[dict]) -> str:
 
     chart_sections = ""
     for r in results:
+        has_ai_text = bool(r.get("ai_analysis"))
+        has_news = bool(r.get("news"))
         ai_html = ""
-        if r.get("ai_analysis"):
+        if has_ai_text or has_news:
+            ai_text_html = f'<div>{r["ai_analysis"]}</div>' if has_ai_text else ""
+            news_html = ""
+            if has_news:
+                items_html = "".join(
+                    f'<li><a href="{n["link"]}" target="_blank" rel="noopener noreferrer">{html.escape(n["title"])}</a></li>'
+                    for n in r["news"]
+                )
+                news_html = f"""
+          <div class="news-list">
+            <div class="news-label">📰 Recent headlines</div>
+            <ul>{items_html}</ul>
+          </div>"""
             ai_html = f"""
         <div class="ai-analysis">
           <div class="ai-label">🤖 AI take on {r['ticker']}</div>
-          <div>{r['ai_analysis']}</div>
-          <div class="ai-caveat">AI-generated from the technical signal above (no fundamentals available for PSE stocks) — may be inaccurate, not financial advice.</div>
+          {ai_text_html}
+          {news_html}
+          <div class="ai-caveat">AI-generated from the technical signal above (no fundamentals available for PSE stocks) — may be inaccurate, not financial advice. Headlines link to their original source.</div>
         </div>"""
         chart_sections += f"""
         <div class="chart-card">
@@ -364,6 +447,12 @@ def build_dashboard(results: list[dict]) -> str:
                   border-radius:4px; font-size:0.9em; color:#333; line-height:1.5; }}
   .ai-label {{ font-weight:700; color:#6d28d9; margin-bottom:4px; }}
   .ai-caveat {{ margin-top:8px; font-size:0.78em; color:#888; }}
+  .news-list {{ margin-top:10px; }}
+  .news-label {{ font-weight:600; color:#555; font-size:0.85em; margin-bottom:4px; }}
+  .news-list ul {{ margin:0; padding-left:20px; }}
+  .news-list li {{ margin-bottom:3px; font-size:0.85em; }}
+  .news-list a {{ color:#4c1d95; text-decoration:none; }}
+  .news-list a:hover {{ text-decoration:underline; }}
   .auth-bar {{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }}
   .auth-btn {{ padding:8px 16px; border-radius:6px; border:1px solid #ddd; background:white;
               cursor:pointer; font-size:0.9em; font-weight:600; }}
@@ -408,6 +497,7 @@ def build_dashboard(results: list[dict]) -> str:
     const currentPrices = {current_prices_js};
     const currentSignals = {signals_js};
     const stopLossPct = {STOP_LOSS_PCT};
+    const stopLossWarningPct = {STOP_LOSS_WARNING_PCT};
     const takeProfitPct = {TAKE_PROFIT_PCT};
     const currencySymbol = "{CURRENCY_SYMBOL}";
     const firebaseConfig = {firebase_config_js};
@@ -440,18 +530,21 @@ def build_dashboard(results: list[dict]) -> str:
       const signal = currentSignals[ticker];
 
       if (signal === 'SELL') {{
-        return {{ text: 'Consider selling — signal turned bearish', color: '#d93025' }};
+        return {{ text: '🔻 Consider selling — signal turned bearish', color: '#d93025' }};
       }}
       if (signal === 'BUY') {{
-        return {{ text: 'Hold — uptrend still active', color: '#1e8e3e' }};
+        return {{ text: '📈 Uptrend still active — no action needed', color: '#1e8e3e' }};
       }}
       if (pctChange <= stopLossPct) {{
-        return {{ text: 'Down ' + pctChange.toFixed(1) + '% — consider your stop-loss', color: '#d93025' }};
+        return {{ text: '🔻 CUT LOSS — down ' + pctChange.toFixed(1) + '%', color: '#d93025' }};
+      }}
+      if (pctChange <= stopLossWarningPct) {{
+        return {{ text: '⚠️ Approaching stop-loss (' + pctChange.toFixed(1) + '%)', color: '#e8a33d' }};
       }}
       if (pctChange >= takeProfitPct) {{
-        return {{ text: 'Up ' + pctChange.toFixed(1) + '% — consider taking some profit', color: '#1e8e3e' }};
+        return {{ text: '💰 Consider taking some profit — up ' + pctChange.toFixed(1) + '%', color: '#1e8e3e' }};
       }}
-      return {{ text: 'Hold', color: '#e8a33d' }};
+      return {{ text: 'No action needed', color: '#999' }};
     }}
 
     function updatePL(ticker, shouldSave) {{
@@ -580,27 +673,65 @@ def build_dashboard(results: list[dict]) -> str:
 </html>"""
 
 
-def generate_ai_analysis(ticker: str, signal_data: dict) -> str | None:
+def fetch_news(query: str, max_results: int = NEWS_MAX_RESULTS) -> list[dict]:
+    """
+    Fetch recent news headlines for a search query via Google News' public RSS
+    feed — free, no API key needed. Returns a list of {title, link, pub_date}
+    dicts, or an empty list on any failure (news is a nice-to-have, never
+    something that should break the rest of the dashboard).
+    """
+    try:
+        url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            print(f"  (news fetch failed for '{query}': HTTP {resp.status_code})", file=sys.stderr)
+            return []
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")[:max_results]
+        news = []
+        for item in items:
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub_date = (item.findtext("pubDate") or "").strip()
+            if title and link:
+                news.append({"title": title, "link": link, "pub_date": pub_date})
+        return news
+    except Exception as e:
+        print(f"  (news fetch failed for '{query}': {e})", file=sys.stderr)
+        return []
+
+
+def generate_ai_analysis(ticker: str, signal_data: dict, news: list[dict]) -> str | None:
     """
     Ask Gemini for a short, plain-language take on this stock, based on the
-    technical signal only (no fundamentals — those are paywalled for PSE
-    stocks). Returns None if no API key is set, or if the request fails for
-    any reason — this must never break the rest of the dashboard.
+    technical signal (no fundamentals — those are paywalled for PSE stocks)
+    and recent news headlines (if any were found). Returns None if no API
+    key is set, or if the request fails for any reason — this must never
+    break the rest of the dashboard.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
 
+    news_block = (
+        "Recent headlines:\n" + "\n".join(f"- {n['title']}" for n in news)
+        if news else
+        "Recent headlines: none found."
+    )
+
     prompt = f"""Based only on the data below, write a brief 2-3 sentence analysis of \
 {ticker} (a Philippine Stock Exchange listed stock) for a retail investor's \
 personal research dashboard. Mention both supportive and risk factors where \
-relevant. Describe what the data shows rather than giving direct buy/sell \
-instructions — the reader makes their own decision. No fundamental data \
-(P/E, earnings, etc.) is available for this stock, so base this only on \
-the technical signal below — say so rather than guessing at fundamentals.
+relevant, and reference recent news if it's relevant to the technical picture. \
+Describe what the data shows rather than giving direct buy/sell instructions \
+— the reader makes their own decision. No fundamental data (P/E, earnings, \
+etc.) is available for this stock, so base this only on the technical \
+signal and news below — say so rather than guessing at fundamentals.
 
 Technical signal: {signal_data['signal']}
-Reasons: {'; '.join(signal_data['reasons'])}"""
+Reasons: {'; '.join(signal_data['reasons'])}
+
+{news_block}"""
 
     try:
         resp = requests.post(
@@ -631,8 +762,12 @@ def main():
             sig["chart_html"] = build_chart_html(ticker, df)
 
             if ENABLE_AI_ANALYSIS and os.environ.get("GEMINI_API_KEY"):
-                sig["ai_analysis"] = generate_ai_analysis(ticker, sig)
+                company_name = COMPANY_NAMES.get(ticker, ticker)
+                news = fetch_news(f"{company_name} stock")
+                sig["news"] = news
+                sig["ai_analysis"] = generate_ai_analysis(ticker, sig, news)
             else:
+                sig["news"] = []
                 sig["ai_analysis"] = None
 
             results.append(sig)
